@@ -1,0 +1,46 @@
+# LED Module
+RED_LED = 23
+YELLOW_LED = 24
+GREEN_LED = 25
+
+# Selection Buttons
+GREEN_BUTTON = 5
+RED_BUTTON = 6
+SELECTION_BUTTONS = [RED_BUTTON, GREEN_BUTTON]
+
+# Relay (Coin Hopper)
+COIN_HOPPER = 13
+
+# Relay (Bottle Conveyor)
+BOTTLE_CONVEYOR = 19
+
+# Coin Hopper (Coin Counter)
+COIN_COUNTER = 12
+
+# Transaction Types
+NO_TRANSACTION = 0
+DEPOSIT_TRANSACTION = 1
+REDEEM_TRANSACTION = 2
+
+# Deposit Selections
+ENTER_ACCOUNT_NUMBER = 0
+CREATE_ACCOUNT = 1
+
+# Low Signal
+LOW = 0
+
+# High Signal
+HIGH = 1
+
+# Storage Weights
+STORAGE_MAX_WEIGHT = 500
+STORAGE_AVERAGE_WEIGHT = 250
+STORAGE_MIN_WEIGHT = 0
+
+# Bottle Valid Weight
+BOTTLE_VALID_WEIGHT = 25
+BOTTLE_CONVEYOR_EMPTY = 0
+
+# Bottle Pricing
+BOTTLE_PRICE_PER_KILO = 8
+BOTTLE_WEIGHT_SCALE = 1000

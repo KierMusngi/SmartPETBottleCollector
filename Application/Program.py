@@ -1,10 +1,13 @@
-# Imported Dependencies
+# Dependencies
 import RPi.GPIO as GPIO
 import Constants as const
 import LiquidCrystalDisplay
+import requests
+import urllib2
 import sqlite3
 import string
 import random
+import json
 import os
 
 from picamera import PiCamera
@@ -16,67 +19,75 @@ from time import sleep
 conn = sqlite3.connect('mainapp.db')
 c = conn.cursor()
 
-# 16 x 2 LCD Object
+# 16 x 2 LCD
 display = LiquidCrystalDisplay.lcd()
 
-# 4 x 3 Keypad Object
+# 4 x 3 keypad
 keypadFactory = rpi_gpio.KeypadFactory()
 keypad = keypadFactory.create_4_by_3_keypad()
 
-# Pi Camera Object
+# Pi camera
 camera = PiCamera()
 camera.rotation = 180
 
-# Storage Weight
+# Storage load cell
 storageHx = HX711(21, 20)
+
+# Bottle load cell
 bottleHx = HX711(9, 10)
+
+# API setup
+url = 'https://app.nanonets.com/api/v2/ImageCategorization/LabelFile/'
+data = {'file': open('/home/pi/Application/ImageToSend/image.jpg', 'rb'), 'modelId': ('', 'f094cc5a-ee98-4dc1-939e-e0ad9525dde9')}
 
 # Application Setup
 def setup():
-    print("Setup started")
+    print("Setup start")
     global GPIO
 
     GPIO.setmode(GPIO.BCM)
     
-    # Button GPIO Setup
+    # Button GPIO setup
     GPIO.setup(const.SELECTION_BUTTONS, GPIO.IN, pull_up_down = GPIO.PUD_UP)
 
-    # Coin Hopper GPIO Setup
+    # Coin Hopper GPIO setup
     GPIO.setup(const.COIN_COUNTER, GPIO.IN, pull_up_down = GPIO.PUD_UP)
     GPIO.add_event_detect(const.COIN_COUNTER, GPIO.FALLING, bouncetime=180)
 
-    # Relay (Coin Hopper) GPIO Setup
+    # Relay (Coin Hopper) GPIO setup
     GPIO.setup(const.COIN_HOPPER, GPIO.OUT)
 
-    # Relay (Bottle Conveyor) GPIO Setup
+    # Relay (Bottle Conveyor) GPIO setup
     GPIO.setup(const.BOTTLE_CONVEYOR, GPIO.OUT)
 
-    # LEDs GPIO Setup
+    # LEDs GPIO setup
     GPIO.setup(const.RED_LED, GPIO.OUT)
     GPIO.setup(const.YELLOW_LED, GPIO.OUT)
     GPIO.setup(const.GREEN_LED, GPIO.OUT)
 
-    # Default GPIO States
+    # Default GPIO states
     GPIO.output(const.COIN_HOPPER, const.HIGH)
     GPIO.output(const.BOTTLE_CONVEYOR, const.HIGH)
     GPIO.output(const.RED_LED, const.LOW)
     GPIO.output(const.YELLOW_LED, const.LOW)
     GPIO.output(const.GREEN_LED, const.LOW)
 
-    # Weight Scale Setup
+    # Storage load cell setup
     storageHx.set_offset(8475410.625)
     storageHx.set_scale(317.949)
     storageHx.tare()
 
+    # Bottle load cell setup
     bottleHx.set_offset(8685773.4375)
     bottleHx.set_scale(306.12)
     bottleHx.tare()
 
     print("Setup done")
 
-# Main Application Loop
+# Application loop
 def loop():
     global GPIO
+    
     display.lcd_display_string_pos("Smart PET", 1, 3)
     display.lcd_display_string("Bottle Collector", 2)
     ValidateStorageWeight()
@@ -146,7 +157,6 @@ def RedButtonIsPressed():
     return not(GPIO.input(const.RED_BUTTON))
 
 def SelectTransaction():
-    # make it work like millis
     time = 5
     transaction = 0
     display.lcd_clear()
@@ -155,22 +165,18 @@ def SelectTransaction():
     sleep(0.3)
     
     while time > 0:
-
         if GreenButtonIsPressed():
             sleep(0.3)
             transaction = const.DEPOSIT_TRANSACTION
             break
-
         if RedButtonIsPressed():
             sleep(0.3)
             transaction = const.REDEEM_TRANSACTION
             break
-
         sleep(1)
         time -= 1
     
     display.lcd_clear()
-
     return transaction
 
 # Generates 11 digits string account number
@@ -251,8 +257,7 @@ def ShowAccountDetails(accountNumber):
     sleep(5)
     display.lcd_clear()
 
-# DEPOSIT TRANSACTION
-
+# Deposit transaction
 def DepositBottles():
     display.lcd_clear()
     display.lcd_display_string("Transaction:", 1)
@@ -261,7 +266,6 @@ def DepositBottles():
     accountNumber = GetAccountNumber()
     if accountNumber != "":
         ShowAccountDetails(accountNumber)
-        
         inProcess = True
         bottleCount = 0
         totalAmount = 0
@@ -272,6 +276,7 @@ def DepositBottles():
             redIsButtonPressed = False
             readings = ReadWeight(bottleHx)
             checkingWeight = True
+
             while checkingWeight:
                 if readings > 1:
                     checkingWeight = False
@@ -283,15 +288,17 @@ def DepositBottles():
                     redIsButtonPressed = True
                     break
                 readings = ReadWeight(bottleHx)
-            
             if redIsButtonPressed:
                 break
-
             if readings <= const.BOTTLE_VALID_WEIGHT and readings != const.BOTTLE_CONVEYOR_EMPTY:
                 display.lcd_clear()
                 display.lcd_display_string("Processing ...", 1)
-                # start image process returns true or false
-                if True: # if bottle is valid (TEST)
+                CaptureImage()
+                response = ImageProcess()
+                print("API Response: " + response)
+                objectIsBottle = ParseJsonResponse(response)
+                print("API Response: " + objectIsBottle)
+                if objectIsBottle:
                     RunConveyor()
                     creditAmount = CalculateDepositCredits(readings)
                     AddBottleCredits(accountNumber, creditAmount)
@@ -301,7 +308,6 @@ def DepositBottles():
                     inProcess = InvalidObject()
             else:
                 inProcess = InvalidObject()
-
         display.lcd_clear()
         display.lcd_display_string("Bottle Count:", 1)
         display.lcd_display_string("Total Amount:", 2)
@@ -312,7 +318,6 @@ def DepositBottles():
         print("Deposit Bottles with account number: " + accountNumber)
     else:
         AccountDoesNotExist()
-        print("No Account")
 
 def AccountDoesNotExist():
     display.lcd_clear()
@@ -327,28 +332,75 @@ def InvalidObject():
     display.lcd_display_string_pos("Try again?", 2, 2)
     decision = False
     deciding = True
-
     while deciding:
-        
         if GreenButtonIsPressed():
             decision = True
             deciding = False
-        
         if RedButtonIsPressed():
             decision = False
             deciding = False
-
     return decision
 
 def CaptureImage():
     os.remove('/home/pi/Application/ImageToSend/image.jpg')
     camera.start_preview()
-    sleep(2)
+    sleep(3)
     camera.capture('/home/pi/Application/ImageToSend/image.jpg')
     camera.stop_preview()
 
+def ParseJsonResponse(jsonString):
+    if jsonString == "":
+        return False
+        
+    try:
+        apiResponseLoad = json.loads(jsonString)
+        resultDump = json.dumps(apiResponseLoad["result"])
+        resultLoad = json.loads(resultDump)
+        dataDump = json.dumps(resultLoad[0])
+        dataLoad = json.loads(dataDump)
+        predictionDump = json.dumps(dataLoad["prediction"])
+        predictionLoad = json.loads(predictionDump)
+        predictionDataDump = json.dumps(predictionLoad[0])
+        predictionDataLoad = json.loads(predictionDataDump)
+        result = predictionDataLoad["label"] 
+    except:
+        return False
+    
+    if result == "bottle":
+      return True
+    return False
+
+def CheckInternetConnection():
+    try:
+        urllib2.urlopen('http://216.58.192.142', timeout=1)
+        return True
+    except urllib2.URLError as err: 
+        return False
+
+def ImageProcess():
+    internetIsAvailable = CheckInternetConnection()
+    jsonResponse = ""
+    if internetIsAvailable:
+        try:
+            print("Requesting from nanonets API")
+            response = requests.post(url, auth= requests.auth.HTTPBasicAuth('ycI6y4usZm7Xksv7f5oDpbJBNpDRhDUv', ''), files=data)
+            jsonResponse = response.text
+            print("API nanonets request ended")
+            return jsonResponse
+        except:
+            display.lcd_clear()
+            display.lcd_display_string("API offline", 1)
+            display.lcd_display_string("Try again later", 2)
+            sleep(3)
+            display.lcd_clear()
+            return jsonResponse
+    else:
+        return jsonResponse
+
+
 def CalculateDepositCredits(bottleWeight):
-    return (bottleWeight * const.BOTTLE_PRICE_PER_KILO) / const.BOTTLE_WEIGHT_SCALE
+    credits = (bottleWeight * const.BOTTLE_PRICE_PER_KILO) / const.BOTTLE_WEIGHT_SCALE
+    return float("{0:.2f}".format(credits))
 
 def ValidateBottleWeight(bottleWeight):
     if bottleWeight <= const.BOTTLE_VALID_WEIGHT:
@@ -365,8 +417,7 @@ def AddBottleCredits(accountNumber, amount):
     newCredit = float("{0:.2f}".format(accountCredits)) + float("{0:.2f}".format(amount)) 
     UpdateAccount(accountNumber, str(newCredit))
 
-# REDEEM TRANSACTION
-
+# Redeem transaction
 def RedeemCredits():
     display.lcd_clear()
     display.lcd_display_string("Transaction:", 1)
@@ -410,7 +461,6 @@ def RedeemCredits():
                             sleep(0.3)
     else:
         AccountDoesNotExist()
-        print("No Account")
 
 def DeductDispensedCoin(accountNumber, amount):
     accountCredits = GetAccountCredit(accountNumber)
@@ -443,12 +493,12 @@ def GetAmountToRedeem():
 def DispenseCoin(amount):
     coinCount = 0
     while(coinCount != amount):
+        print("Start coin dispensing")
         GPIO.output(const.COIN_HOPPER, const.LOW)
         if GPIO.event_detected(const.COIN_COUNTER):
-            print("Dispensing coin")
             coinCount += 1
     GPIO.output(const.COIN_HOPPER, const.HIGH)
-    print("Done dispensing")
+    print("Done coin dispensing")
 
 def ValidateAmount(accountNumber, amount):
     accountCredits = GetAccountCredit(accountNumber)
@@ -516,7 +566,7 @@ def GetAccountNumber():
 
     return accountNumber
 
-# MAIN
+# Main application
 try:
     setup()
     while True:

@@ -16,7 +16,7 @@ from hx711 import HX711
 from time import sleep
 
 # Connection to database (Sqlite 3)
-conn = sqlite3.connect('mainapp.db')
+conn = sqlite3.connect('/home/pi/application/mainapp.db')
 c = conn.cursor()
 
 # 16 x 2 LCD
@@ -36,35 +36,34 @@ storageHx = HX711(21, 20)
 # Bottle load cell
 bottleHx = HX711(9, 10)
 
-# API setup
-url = 'https://app.nanonets.com/api/v2/ImageCategorization/LabelFile/'
-data = {'file': open('/home/pi/Application/ImageToSend/image.jpg', 'rb'), 'modelId': ('', 'f094cc5a-ee98-4dc1-939e-e0ad9525dde9')}
-
 # Application Setup
 def setup():
     print("Setup start")
     global GPIO
-
     GPIO.setmode(GPIO.BCM)
     
+    print("Setting up option buttons")
     # Button GPIO setup
     GPIO.setup(const.SELECTION_BUTTONS, GPIO.IN, pull_up_down = GPIO.PUD_UP)
 
+    print("Setting up coin hopper")
     # Coin Hopper GPIO setup
     GPIO.setup(const.COIN_COUNTER, GPIO.IN, pull_up_down = GPIO.PUD_UP)
     GPIO.add_event_detect(const.COIN_COUNTER, GPIO.FALLING, bouncetime=180)
 
+    print("Setting up relays")
     # Relay (Coin Hopper) GPIO setup
     GPIO.setup(const.COIN_HOPPER, GPIO.OUT)
-
     # Relay (Bottle Conveyor) GPIO setup
     GPIO.setup(const.BOTTLE_CONVEYOR, GPIO.OUT)
 
+    print("Setting up LEDs")
     # LEDs GPIO setup
     GPIO.setup(const.RED_LED, GPIO.OUT)
     GPIO.setup(const.YELLOW_LED, GPIO.OUT)
     GPIO.setup(const.GREEN_LED, GPIO.OUT)
 
+    print("Setting default GPIO states")
     # Default GPIO states
     GPIO.output(const.COIN_HOPPER, const.HIGH)
     GPIO.output(const.BOTTLE_CONVEYOR, const.HIGH)
@@ -72,11 +71,11 @@ def setup():
     GPIO.output(const.YELLOW_LED, const.LOW)
     GPIO.output(const.GREEN_LED, const.LOW)
 
+    print("Setting up load cells")
     # Storage load cell setup
     storageHx.set_offset(8475410.625)
     storageHx.set_scale(317.949)
     storageHx.tare()
-
     # Bottle load cell setup
     bottleHx.set_offset(8685773.4375)
     bottleHx.set_scale(306.12)
@@ -91,31 +90,46 @@ def loop():
     display.lcd_display_string_pos("Smart PET", 1, 3)
     display.lcd_display_string("Bottle Collector", 2)
     ValidateStorageWeight()
-
-    if GreenButtonIsPressed() or RedButtonIsPressed():
+    if GreenButtonIsPressed() and RedButtonIsPressed():
+        display.lcd_clear()
+        display.lcd_display_string_pos("Shut down", 1, 3)
+        display.lcd_display_string("Turn off switch", 2)
+        ShutDown()
+    elif GreenButtonIsPressed() or RedButtonIsPressed():
         sleep(0.3)
         transaction = SelectTransaction()
         if transaction == const.NO_TRANSACTION:
             pass
         elif transaction == const.DEPOSIT_TRANSACTION:
-            print("Deposit Transaction")
+            print("Deposit transaction")
             DepositBottles()
         elif transaction == const.REDEEM_TRANSACTION:
-            print("Redeem Transacion")
+            print("Redeem transacion")
             RedeemCredits()
 
+def ShutDown():
+    global GPIO
+    GPIO.cleanup()
+    os.system("sudo shutdown now")
+    
 def ValidateStorageWeight():
     while True:
         readings = ReadWeight(storageHx)
         if readings >= const.STORAGE_MAX_WEIGHT:
             display.lcd_clear()
-            display.lcd_display_string_pos("Storage full!", 1, 2)
+            display.lcd_display_string_pos("Storage full", 1, 2)
+            display.lcd_display_string("Collect bottles", 2)
             stillOnMaxStorageWeight = True
             while stillOnMaxStorageWeight:
                 TurnOnRedLed()
                 readings = ReadWeight(storageHx)
                 if (readings < const.STORAGE_MAX_WEIGHT):
                     stillOnMaxStorageWeight = False
+                if GreenButtonIsPressed() and RedButtonIsPressed():
+                    display.lcd_clear()
+                    display.lcd_display_string_pos("Shut down", 1, 3)
+                    display.lcd_display_string("Turn off switch", 2)
+                    ShutDown()
             display.lcd_clear()
             break
         elif readings >= const.STORAGE_AVERAGE_WEIGHT and readings < const.STORAGE_MAX_WEIGHT:
@@ -160,8 +174,8 @@ def SelectTransaction():
     time = 5
     transaction = 0
     display.lcd_clear()
-    display.lcd_display_string("G:Deposit Bottle", 1)
-    display.lcd_display_string("R:Redeem Credits", 2)
+    display.lcd_display_string("G:Deposit bottle", 1)
+    display.lcd_display_string("R:Redeem credits", 2)
     sleep(0.3)
     
     while time > 0:
@@ -209,7 +223,7 @@ def DisplayAccountNumber(accountNumber, timeOfDisplay):
     display.lcd_clear()
 
     while True:
-        display.lcd_display_string("New Account No.:", 1)
+        display.lcd_display_string("New account no.:", 1)
         display.lcd_display_string(accountNumber, 2)
         sleep(1)
 
@@ -261,7 +275,7 @@ def ShowAccountDetails(accountNumber):
 def DepositBottles():
     display.lcd_clear()
     display.lcd_display_string("Transaction:", 1)
-    display.lcd_display_string("Deposit Bottles", 2)
+    display.lcd_display_string("Deposit bottles", 2)
     sleep(3)
     accountNumber = GetAccountNumber()
     if accountNumber != "":
@@ -271,7 +285,7 @@ def DepositBottles():
         totalAmount = 0
         while inProcess:
             display.lcd_clear()
-            display.lcd_display_string("Insert Bottle", 1)
+            display.lcd_display_string_pos("Insert bottles", 1, 1)
             display.lcd_display_string("R: Cancel", 2)
             redIsButtonPressed = False
             readings = ReadWeight(bottleHx)
@@ -290,14 +304,16 @@ def DepositBottles():
                 readings = ReadWeight(bottleHx)
             if redIsButtonPressed:
                 break
+            sleep(0.3)
             if readings <= const.BOTTLE_VALID_WEIGHT and readings != const.BOTTLE_CONVEYOR_EMPTY:
                 display.lcd_clear()
-                display.lcd_display_string("Processing ...", 1)
+                display.lcd_display_string("Processing image", 1)
+                display.lcd_display_string("Please wait ...", 2)
+                print("Image Processing started")
                 CaptureImage()
-                response = ImageProcess()
-                print("API Response: " + response)
-                objectIsBottle = ParseJsonResponse(response)
-                print("API Response: " + objectIsBottle)
+                ImageProcess()
+                objectIsBottle = GetImageProcessResult()
+                print("Image Processing ended")
                 if objectIsBottle:
                     RunConveyor()
                     creditAmount = CalculateDepositCredits(readings)
@@ -309,10 +325,10 @@ def DepositBottles():
             else:
                 inProcess = InvalidObject()
         display.lcd_clear()
-        display.lcd_display_string("Bottle Count:", 1)
-        display.lcd_display_string("Total Amount:", 2)
+        display.lcd_display_string("Count:", 1)
+        display.lcd_display_string("Total:", 2)
         display.lcd_display_string_pos(str(bottleCount), 1, 13)
-        display.lcd_display_string_pos(str(totalAmount), 2, 13)
+        display.lcd_display_string_pos(str(totalAmount), 2, 12)
         sleep(3)
         display.lcd_clear()
         print("Deposit Bottles with account number: " + accountNumber)
@@ -342,61 +358,21 @@ def InvalidObject():
     return decision
 
 def CaptureImage():
-    os.remove('/home/pi/Application/ImageToSend/image.jpg')
+    os.remove('/home/pi/application/ImageToSend/image.jpg')
     camera.start_preview()
     sleep(3)
-    camera.capture('/home/pi/Application/ImageToSend/image.jpg')
+    camera.capture('/home/pi/application/ImageToSend/image.jpg')
     camera.stop_preview()
 
-def ParseJsonResponse(jsonString):
-    if jsonString == "":
-        return False
-        
-    try:
-        apiResponseLoad = json.loads(jsonString)
-        resultDump = json.dumps(apiResponseLoad["result"])
-        resultLoad = json.loads(resultDump)
-        dataDump = json.dumps(resultLoad[0])
-        dataLoad = json.loads(dataDump)
-        predictionDump = json.dumps(dataLoad["prediction"])
-        predictionLoad = json.loads(predictionDump)
-        predictionDataDump = json.dumps(predictionLoad[0])
-        predictionDataLoad = json.loads(predictionDataDump)
-        result = predictionDataLoad["label"] 
-    except:
-        return False
-    
-    if result == "bottle":
-      return True
+def GetImageProcessResult():
+    c.execute('SELECT Result FROM ImageProcess;')
+    result = c.fetchone()[0]
+    if str(result) == "1":
+        return True
     return False
 
-def CheckInternetConnection():
-    try:
-        urllib2.urlopen('http://216.58.192.142', timeout=1)
-        return True
-    except urllib2.URLError as err: 
-        return False
-
 def ImageProcess():
-    internetIsAvailable = CheckInternetConnection()
-    jsonResponse = ""
-    if internetIsAvailable:
-        try:
-            print("Requesting from nanonets API")
-            response = requests.post(url, auth= requests.auth.HTTPBasicAuth('ycI6y4usZm7Xksv7f5oDpbJBNpDRhDUv', ''), files=data)
-            jsonResponse = response.text
-            print("API nanonets request ended")
-            return jsonResponse
-        except:
-            display.lcd_clear()
-            display.lcd_display_string("API offline", 1)
-            display.lcd_display_string("Try again later", 2)
-            sleep(3)
-            display.lcd_clear()
-            return jsonResponse
-    else:
-        return jsonResponse
-
+    os.system("python3 /home/pi/application/imageprocess/scripts/label_image.py")
 
 def CalculateDepositCredits(bottleWeight):
     credits = (bottleWeight * const.BOTTLE_PRICE_PER_KILO) / const.BOTTLE_WEIGHT_SCALE
@@ -421,7 +397,7 @@ def AddBottleCredits(accountNumber, amount):
 def RedeemCredits():
     display.lcd_clear()
     display.lcd_display_string("Transaction:", 1)
-    display.lcd_display_string("Redeem Credits", 2)
+    display.lcd_display_string("Redeem credits", 2)
     sleep(3)
     accountNumber = InputAccountNumber()
 
@@ -437,14 +413,15 @@ def RedeemCredits():
                     DispenseCoin(int(amount))
                     DeductDispensedCoin(accountNumber, amount)
                     display.lcd_clear()
-                    display.lcd_display_string("Thank you !!!", 1)
-                    sleep(1.5)
+                    display.lcd_display_string_pos("Thank you", 1, 3)
+                    display.lcd_display_string("Save the planet", 2)
+                    sleep(2)
                     display.lcd_clear()
                     onTransaction = False
                 else:
                     display.lcd_clear()
-                    display.lcd_display_string("Invalid Amount!", 1)
-                    display.lcd_display_string("Try Again? G: R:", 2)
+                    display.lcd_display_string("Invalid amount", 1)
+                    display.lcd_display_string("Try again?", 2)
                     sleep(2)
                     deciding = True
                     while deciding:
@@ -472,8 +449,7 @@ def GetAmountToRedeem():
     done = False
 
     display.lcd_clear()
-    display.lcd_display_string("Enter Amount: ", 1)
-    display.lcd_display_string_pos("G:", 2, 14)
+    display.lcd_display_string("Enter amount: ", 1)
 
     while not done:
         keyCharacter = keypad.getKey()
@@ -487,18 +463,20 @@ def GetAmountToRedeem():
         if GreenButtonIsPressed():
             done = True
             sleep(0.3)
+        if RedButtonIsPressed():
+            done = True
+            amount = "0"
+            sleep(0.3)
 
     return amount
 
 def DispenseCoin(amount):
     coinCount = 0
     while(coinCount != amount):
-        print("Start coin dispensing")
         GPIO.output(const.COIN_HOPPER, const.LOW)
         if GPIO.event_detected(const.COIN_COUNTER):
             coinCount += 1
     GPIO.output(const.COIN_HOPPER, const.HIGH)
-    print("Done coin dispensing")
 
 def ValidateAmount(accountNumber, amount):
     accountCredits = GetAccountCredit(accountNumber)
@@ -511,7 +489,7 @@ def GetExistingAccountNumber():
     accountNumber = ""
 
     display.lcd_clear()
-    display.lcd_display_string("Enter Account#", 1)
+    display.lcd_display_string("Enter account:", 1)
         
     while accountNumberSize != 0 :
         keyCharacter = keypad.getKey()
@@ -532,7 +510,7 @@ def InputAccountNumber():
         if not(ValidateAccountNumber(accountNumber)):
             break
         display.lcd_clear()
-        display.lcd_display_string("Invalid Account!", 1)
+        display.lcd_display_string("Invalid account!", 1)
         sleep(1)
         display.lcd_clear()
         accountNumber = ""
@@ -545,8 +523,8 @@ def GetAccountNumber():
     option = const.CREATE_ACCOUNT
 
     display.lcd_clear()
-    display.lcd_display_string("G:Enter Account#", 1)
-    display.lcd_display_string("R:Create Account", 2)
+    display.lcd_display_string("G:Enter account", 1)
+    display.lcd_display_string("R:Create account", 2)
 
     while True:
         if GreenButtonIsPressed():

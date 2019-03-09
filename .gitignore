@@ -105,4 +105,4 @@ venv.bak/
 
 # Ignore these
 Documentations/PET Bottle Images/
-imageprocess/tensorflow/tf_files/
+Image Processing/Tensorflow/tf_files/

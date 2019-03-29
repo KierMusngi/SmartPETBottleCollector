@@ -9,7 +9,7 @@ There are two main transaction on this system, deposit bottles and redeem credit
 ![Block Diagram](https://user-images.githubusercontent.com/22982449/55237395-0e84ae00-526d-11e9-9241-67205b6e64e1.png)
 
 ### Prototype
-An actual image of the Smart PET Bottle Collector prototype
+An actual image of the Smart PET Bottle Collector prototype<br/>
 ![Prototype](https://user-images.githubusercontent.com/22982449/55237300-d2e9e400-526c-11e9-89ba-8b0273f26af2.jpg)
 
 ### References
